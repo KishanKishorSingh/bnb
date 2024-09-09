@@ -13,7 +13,7 @@ import java.util.UUID;
 public class S3Service {
 
     private final S3Client s3Client;
-    private final String bucketName = "bnb1995";
+    private final String bucketName = "";
 
     public S3Service(S3Client s3Client) {
         this.s3Client = s3Client;
