@@ -6,13 +6,18 @@ import com.airbnb.entity.Property;
 import com.airbnb.entity.Rooms;
 import com.airbnb.repository.PropertyRepository;
 import com.airbnb.repository.RoomsRepository;
+import com.airbnb.service.implementationClass.EmailService;
+import com.airbnb.service.implementationClass.PDFService;
 import com.airbnb.service.interfaceClass.BookingService;
+import com.itextpdf.text.DocumentException;
+import jakarta.mail.MessagingException;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.FileNotFoundException;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -23,11 +28,15 @@ public class BookingController {
     private BookingService bookingService;
     private RoomsRepository roomsRepository;
     private PropertyRepository propertyRepository;
+    private PDFService pdfService;
+    private EmailService emailService;
 
-    public BookingController(BookingService bookingService, RoomsRepository roomsRepository, PropertyRepository propertyRepository) {
+    public BookingController(BookingService bookingService, RoomsRepository roomsRepository, PropertyRepository propertyRepository, PDFService pdfService, EmailService emailService) {
         this.bookingService = bookingService;
         this.roomsRepository = roomsRepository;
         this.propertyRepository = propertyRepository;
+        this.pdfService = pdfService;
+        this.emailService = emailService;
     }
 
     @PostMapping
@@ -35,7 +44,7 @@ public class BookingController {
                                            @RequestParam long propertyId,
                                            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate checkinDate,
                                            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate checkoutDate,
-                                           @AuthenticationPrincipal AppUser user) {
+                                           @AuthenticationPrincipal AppUser user) throws DocumentException, FileNotFoundException, MessagingException {
 
         Optional<Property> byId = propertyRepository.findById(propertyId);
         Float total = 0f;
@@ -64,6 +73,12 @@ public class BookingController {
                     bookings.setProperty(property);
                     bookings.setAppUser(user);
                     Bookings bookingOfUser = bookingService.createBookingOfUser(bookings);
+                    pdfService.generatePDF(bookingOfUser);
+                    String pdfPath = "D://Intellij//bnb//pdf//" + bookings.getId() + "_booking_confirmation.pdf";
+                    emailService.sendEmailWithAttachment(bookings.getGuestEmail(),
+                            "Booking Confirmation",
+                            "Please find your booking confirmation attached.",
+                            pdfPath);
                     return new ResponseEntity<>(bookingOfUser, HttpStatus.CREATED);
 
                 }
