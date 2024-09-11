@@ -8,6 +8,7 @@ import com.airbnb.repository.PropertyRepository;
 import com.airbnb.repository.RoomsRepository;
 import com.airbnb.service.implementationClass.EmailService;
 import com.airbnb.service.implementationClass.PDFService;
+import com.airbnb.service.implementationClass.SmsService;
 import com.airbnb.service.interfaceClass.BookingService;
 import com.itextpdf.text.DocumentException;
 import jakarta.mail.MessagingException;
@@ -30,13 +31,15 @@ public class BookingController {
     private PropertyRepository propertyRepository;
     private PDFService pdfService;
     private EmailService emailService;
+    private SmsService smsService;
 
-    public BookingController(BookingService bookingService, RoomsRepository roomsRepository, PropertyRepository propertyRepository, PDFService pdfService, EmailService emailService) {
+    public BookingController(BookingService bookingService, RoomsRepository roomsRepository, PropertyRepository propertyRepository, PDFService pdfService, EmailService emailService, SmsService smsService) {
         this.bookingService = bookingService;
         this.roomsRepository = roomsRepository;
         this.propertyRepository = propertyRepository;
         this.pdfService = pdfService;
         this.emailService = emailService;
+        this.smsService = smsService;
     }
 
     @PostMapping
@@ -65,7 +68,7 @@ public class BookingController {
                 total = total + (byTypeOfRooms.getPrice()*bookings.getNumberOfRooms());
             }
                 if (checkinDate.isBefore(checkoutDate) || checkinDate.isEqual(checkoutDate)) {
-                    long days = ChronoUnit.DAYS.between(checkinDate, checkoutDate);
+                  long days = ChronoUnit.DAYS.between(checkinDate, checkoutDate);
                     bookings.setTotalPrice(total);
                     bookings.setCheckInDate(checkinDate);
                     bookings.setNumberOfNights((int) days);
@@ -73,19 +76,24 @@ public class BookingController {
                     bookings.setProperty(property);
                     bookings.setAppUser(user);
                     Bookings bookingOfUser = bookingService.createBookingOfUser(bookings);
+                    //for Pdf Generation
                     pdfService.generatePDF(bookingOfUser);
+                    //For Email Service
                     String pdfPath = "D://Intellij//bnb//pdf//" + bookings.getId() + "_booking_confirmation.pdf";
                     emailService.sendEmailWithAttachment(bookings.getGuestEmail(),
                             "Booking Confirmation",
                             "Please find your booking confirmation attached.",
                             pdfPath);
+                    //For Sms Service
+                    String message = String.format("Booking confirmed! Property: %s, Check-in: %s, Check-out: %s. Total Price: %.2f",
+                            property.getProperty_Name(),checkinDate, checkoutDate, total);
+                    smsService.sendSms(bookings.getGuestMobile(), message);
+
+                    //for Whatsapp
+                    smsService.sendWhatsAppMessage(bookings.getGuestMobile(), message);
                     return new ResponseEntity<>(bookingOfUser, HttpStatus.CREATED);
 
                 }
-
-
-
-
         }
         return new ResponseEntity<>("some error occurs",HttpStatus.BAD_REQUEST);
     }
