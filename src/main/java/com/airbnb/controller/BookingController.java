@@ -12,6 +12,8 @@ import com.airbnb.service.implementationClass.SmsService;
 import com.airbnb.service.interfaceClass.BookingService;
 import com.itextpdf.text.DocumentException;
 import jakarta.mail.MessagingException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,6 +34,7 @@ public class BookingController {
     private PDFService pdfService;
     private EmailService emailService;
     private SmsService smsService;
+    private static final Logger logger = LoggerFactory.getLogger(BookingController.class);
 
     public BookingController(BookingService bookingService, RoomsRepository roomsRepository, PropertyRepository propertyRepository, PDFService pdfService, EmailService emailService, SmsService smsService) {
         this.bookingService = bookingService;
@@ -47,28 +50,28 @@ public class BookingController {
                                            @RequestParam long propertyId,
                                            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate checkinDate,
                                            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate checkoutDate,
-                                           @AuthenticationPrincipal AppUser user) throws DocumentException, FileNotFoundException, MessagingException {
+                                           @AuthenticationPrincipal AppUser user)  {
+        try {
+            Optional<Property> byId = propertyRepository.findById(propertyId);
+            Float total = 0f;
+            if (byId.isPresent()) {
+                Property property = byId.get();
+                List<LocalDate> datesBetween = findDateBetween(checkinDate, checkoutDate);
+                List<Rooms> room = new ArrayList<>();
+                for (LocalDate date : datesBetween) {
 
-        Optional<Property> byId = propertyRepository.findById(propertyId);
-        Float total = 0f;
-        if (byId.isPresent()) {
-            Property property = byId.get();
-            List<LocalDate> datesBetween = findDateBetween(checkinDate, checkoutDate);
-            List<Rooms> room = new ArrayList<>();
-            for (LocalDate date : datesBetween) {
+                    Rooms byTypeOfRooms = roomsRepository.findByTypeOfRoomsAndDateAndPropertyId(bookings.getTypesOfRooms(), date, propertyId);
+                    if (byTypeOfRooms.getCount() < bookings.getNumberOfRooms()) {
+                        room.removeAll(room);
+                        return new ResponseEntity<>("No Rooms Available", HttpStatus.UNAUTHORIZED);
+                    }
+                    byTypeOfRooms.setCount(byTypeOfRooms.getCount() - bookings.getNumberOfRooms());
 
-                Rooms byTypeOfRooms = roomsRepository.findByTypeOfRoomsAndDateAndPropertyId(bookings.getTypesOfRooms(), date, propertyId);
-                if (byTypeOfRooms.getCount()< bookings.getNumberOfRooms()) {
-                    room.removeAll(room);
-                    return new ResponseEntity<>("No Rooms Available", HttpStatus.UNAUTHORIZED);
+                    room.add(byTypeOfRooms);
+                    total = total + (byTypeOfRooms.getPrice() * bookings.getNumberOfRooms());
                 }
-                byTypeOfRooms.setCount(byTypeOfRooms.getCount()-bookings.getNumberOfRooms());
-
-                room.add(byTypeOfRooms);
-                total = total + (byTypeOfRooms.getPrice()*bookings.getNumberOfRooms());
-            }
                 if (checkinDate.isBefore(checkoutDate) || checkinDate.isEqual(checkoutDate)) {
-                  long days = ChronoUnit.DAYS.between(checkinDate, checkoutDate);
+                    long days = ChronoUnit.DAYS.between(checkinDate, checkoutDate);
                     bookings.setTotalPrice(total);
                     bookings.setCheckInDate(checkinDate);
                     bookings.setNumberOfNights((int) days);
@@ -77,23 +80,30 @@ public class BookingController {
                     bookings.setAppUser(user);
                     Bookings bookingOfUser = bookingService.createBookingOfUser(bookings);
                     //for Pdf Generation
+                    logger.info("pdf generating  {}", new Date());
                     pdfService.generatePDF(bookingOfUser);
                     //For Email Service
+                    logger.info("Email Sending  {}  ", new Date());
                     String pdfPath = "D://Intellij//bnb//pdf//" + bookings.getId() + "_booking_confirmation.pdf";
                     emailService.sendEmailWithAttachment(bookings.getGuestEmail(),
                             "Booking Confirmation",
                             "Please find your booking confirmation attached.",
                             pdfPath);
                     //For Sms Service
+                    logger.info("Sms Sending  {}", new Date());
                     String message = String.format("Booking confirmed! Property: %s, Check-in: %s, Check-out: %s. Total Price: %.2f",
-                            property.getProperty_Name(),checkinDate, checkoutDate, total);
+                            property.getProperty_Name(), checkinDate, checkoutDate, total);
                     smsService.sendSms(bookings.getGuestMobile(), message);
 
                     //for Whatsapp
+                    logger.info("Whatsapp Sending  {}", new Date());
                     smsService.sendWhatsAppMessage(bookings.getGuestMobile(), message);
                     return new ResponseEntity<>(bookingOfUser, HttpStatus.CREATED);
 
                 }
+            }
+        }catch(Exception e){
+            logger.error(e.getMessage());
         }
         return new ResponseEntity<>("some error occurs",HttpStatus.BAD_REQUEST);
     }
